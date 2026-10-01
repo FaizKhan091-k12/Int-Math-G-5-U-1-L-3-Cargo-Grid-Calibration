@@ -127,6 +127,36 @@ public class CargoGridGameManager : MonoBehaviour
     private readonly Color colorWrongBg = new Color(0.42f, 0.12f, 0.08f, 0.98f);
     private readonly Color colorDefaultCrateBg = new Color(0.08f, 0.14f, 0.26f, 0.96f);
 
+    private Vector3 authoredVisualDisplayScale = Vector3.one;
+    private Vector3 authoredPromptScale = Vector3.one;
+    private Vector3[] authoredOptionScales;
+    private bool hasCachedActivityScales = false;
+
+    private void CacheActivityAuthoredScales()
+    {
+        if (hasCachedActivityScales) return;
+
+        if (visualDisplayImage != null)
+            authoredVisualDisplayScale = visualDisplayImage.transform.localScale;
+
+        if (screenPromptTMP != null)
+            authoredPromptScale = screenPromptTMP.transform.localScale;
+
+        if (optionButtons != null)
+        {
+            authoredOptionScales = new Vector3[optionButtons.Length];
+            for (int i = 0; i < optionButtons.Length; i++)
+            {
+                if (optionButtons[i] != null)
+                    authoredOptionScales[i] = optionButtons[i].transform.localScale;
+                else
+                    authoredOptionScales[i] = Vector3.one;
+            }
+        }
+
+        hasCachedActivityScales = true;
+    }
+
     private void Awake()
     {
         if (instance != null && instance != this)
@@ -134,6 +164,7 @@ public class CargoGridGameManager : MonoBehaviour
             Destroy(instance.gameObject);
         }
         instance = this;
+        CacheActivityAuthoredScales();
         EnsureActivityItems();
     }
 
@@ -640,29 +671,25 @@ public class CargoGridGameManager : MonoBehaviour
         if (taskPromptTMP != null) taskPromptTMP.text = item.taskPrompt;
         if (botDialogueTMP != null) botDialogueTMP.text = item.botCheerPrompt;
 
-        // Visual Display Sprite inside Viewscreen
+        CacheActivityAuthoredScales();
+
+        // Visual Display Sprite inside Viewscreen (Preserves user authored scale)
         if (visualDisplayImage != null && item.visualSprite != null)
         {
             visualDisplayImage.sprite = item.visualSprite;
             visualDisplayImage.gameObject.SetActive(true);
             visualDisplayImage.transform.DOKill();
-            visualDisplayImage.transform.localScale = new Vector3(0.92f, 0.92f, 1f);
-            visualDisplayImage.transform.DOScale(1f, 0.35f).SetEase(Ease.OutBack);
+            visualDisplayImage.transform.localScale = authoredVisualDisplayScale;
         }
 
-        // Animate Prompts
+        // Prompts (Preserves user authored scale)
         if (screenPromptTMP != null)
         {
             screenPromptTMP.transform.DOKill();
-            screenPromptTMP.transform.localScale = new Vector3(0.95f, 0.95f, 1f);
-            screenPromptTMP.transform.DOScale(1f, 0.3f).SetEase(Ease.OutBack);
+            screenPromptTMP.transform.localScale = authoredPromptScale;
         }
 
-        // Setup Options inside Conveyor Tray
-        int optCount = item.options.Length;
-        float podWidth = (optCount <= 2) ? 520f : (optCount == 3) ? 420f : (optCount == 4) ? 350f : 300f;
-        float podHeight = 230f;
-
+        // Setup Options inside Conveyor Tray - All user-configured button sizes & scales strictly preserved!
         for (int i = 0; i < optionButtons.Length; i++)
         {
             if (i < item.options.Length)
@@ -670,17 +697,7 @@ public class CargoGridGameManager : MonoBehaviour
                 optionButtons[i].gameObject.SetActive(true);
                 optionButtons[i].interactable = true;
 
-                LayoutElement le = optionButtons[i].GetComponent<LayoutElement>();
-                if (le != null)
-                {
-                    le.preferredWidth = podWidth;
-                    le.minWidth = podWidth;
-                    le.preferredHeight = podHeight;
-                    le.minHeight = podHeight;
-                }
-
-                RectTransform rt = optionButtons[i].GetComponent<RectTransform>();
-                if (rt != null) rt.sizeDelta = new Vector2(podWidth, podHeight);
+                // User manual sizes (sizeDelta and LayoutElement preferred/min width & height) are 100% preserved! Zero overrides!
 
                 if (optionTexts[i] != null) optionTexts[i].text = item.options[i];
                 if (optionSubtitles[i] != null)
@@ -700,9 +717,12 @@ public class CargoGridGameManager : MonoBehaviour
                     optionBgImages[i].color = colorDefaultCrateBg;
                 }
 
+                Vector3 targetScale = (authoredOptionScales != null && i < authoredOptionScales.Length) 
+                    ? authoredOptionScales[i] 
+                    : Vector3.one;
+
                 optionButtons[i].transform.DOKill();
-                optionButtons[i].transform.localScale = Vector3.zero;
-                optionButtons[i].transform.DOScale(1f, 0.3f).SetDelay(0.06f * i).SetEase(Ease.OutBack);
+                optionButtons[i].transform.localScale = targetScale;
             }
             else
             {
