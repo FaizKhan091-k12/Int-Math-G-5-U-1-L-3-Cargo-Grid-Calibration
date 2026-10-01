@@ -106,6 +106,16 @@ public class CargoGridGameManager : MonoBehaviour
     public Image screenFlashOverlay;
     public Image bayLightingGlow;
 
+    [Header("Randomization Settings")]
+    [Tooltip("If enabled, the order of the questions/sectors is shuffled when starting or replaying the mission.")]
+    public bool randomizeQuestions = true;
+
+    [Tooltip("If enabled, the order of option buttons for each question will be shuffled.")]
+    public bool randomizeOptions = true;
+
+    private List<ActivityItem> originalActivityItems;
+    private int currentCorrectOptionIndex = 0;
+
     [Header("Activity Data")]
     public List<ActivityItem> activityItems = new List<ActivityItem>();
     private int currentItemIndex = 0;
@@ -166,18 +176,27 @@ public class CargoGridGameManager : MonoBehaviour
         instance = this;
         CacheActivityAuthoredScales();
         EnsureActivityItems();
+        PrepareQuestionList();
     }
 
     private void Start()
     {
         EnsureActivityItems();
+        PrepareQuestionList();
         SetupButtonListeners();
         ShowScreenInstructions();
     }
 
     public void EnsureActivityItems()
     {
-        if (activityItems != null && activityItems.Count > 0) return;
+        if (activityItems != null && activityItems.Count > 0)
+        {
+            if (originalActivityItems == null || originalActivityItems.Count == 0)
+            {
+                originalActivityItems = new List<ActivityItem>(activityItems);
+            }
+            return;
+        }
 
         Sprite crateSprite = Resources.Load<Sprite>("CargoGrid/Sprites/crate_item");
         Sprite conveyorTraySprite = Resources.Load<Sprite>("CargoGrid/Sprites/conveyor_tray_bg");
@@ -263,6 +282,32 @@ public class CargoGridGameManager : MonoBehaviour
                 visualSprite = landingSprite
             }
         };
+
+        if (originalActivityItems == null || originalActivityItems.Count == 0)
+        {
+            originalActivityItems = new List<ActivityItem>(activityItems);
+        }
+    }
+
+    public void PrepareQuestionList()
+    {
+        EnsureActivityItems();
+
+        if (originalActivityItems != null && originalActivityItems.Count > 0)
+        {
+            activityItems = new List<ActivityItem>(originalActivityItems);
+        }
+
+        if (randomizeQuestions && activityItems != null && activityItems.Count > 1)
+        {
+            for (int i = activityItems.Count - 1; i > 0; i--)
+            {
+                int rnd = UnityEngine.Random.Range(0, i + 1);
+                ActivityItem temp = activityItems[i];
+                activityItems[i] = activityItems[rnd];
+                activityItems[rnd] = temp;
+            }
+        }
     }
 
     public void SetupButtonListeners()
@@ -632,7 +677,7 @@ public class CargoGridGameManager : MonoBehaviour
     {
         Debug.Log("[CargoGrid] Start Mission Clicked! Transitioning to Level 1...");
         SkipTypewriterInstructions();
-        EnsureActivityItems();
+        PrepareQuestionList();
         if (AudioManager.instance != null) AudioManager.instance.PlayClick();
 
         if (screenInstructions != null) screenInstructions.SetActive(false);
@@ -665,7 +710,7 @@ public class CargoGridGameManager : MonoBehaviour
         UpdateEnergyBar(index);
 
         // Update Stage Header
-        if (stageTitleTMP != null) stageTitleTMP.text = $"{item.stageTag} • {item.stageTitle.ToUpper()}";
+        if (stageTitleTMP != null) stageTitleTMP.text = $"[ SECTOR 0{index + 1} ] • {item.stageTitle.ToUpper()}";
         if (stageSubtitleTMP != null) stageSubtitleTMP.text = $"CONCEPT: {item.conceptName.ToUpper()}";
         if (screenPromptTMP != null) screenPromptTMP.text = item.screenPrompt;
         if (taskPromptTMP != null) taskPromptTMP.text = item.taskPrompt;
@@ -689,26 +734,56 @@ public class CargoGridGameManager : MonoBehaviour
             screenPromptTMP.transform.localScale = authoredPromptScale;
         }
 
+        // Setup Options ordering (shuffled if randomizeOptions is enabled)
+        int optCount = (item.options != null) ? item.options.Length : 0;
+        int[] displayIndices = new int[optCount];
+        for (int k = 0; k < optCount; k++) displayIndices[k] = k;
+
+        if (randomizeOptions && optCount > 1)
+        {
+            for (int k = optCount - 1; k > 0; k--)
+            {
+                int rnd = UnityEngine.Random.Range(0, k + 1);
+                int temp = displayIndices[k];
+                displayIndices[k] = displayIndices[rnd];
+                displayIndices[rnd] = temp;
+            }
+        }
+
+        // Determine which button displays the correct answer
+        currentCorrectOptionIndex = item.correctOptionIndex;
+        for (int k = 0; k < optCount; k++)
+        {
+            if (displayIndices[k] == item.correctOptionIndex)
+            {
+                currentCorrectOptionIndex = k;
+                break;
+            }
+        }
+
         // Setup Options inside Conveyor Tray - All user-configured button sizes & scales strictly preserved!
         for (int i = 0; i < optionButtons.Length; i++)
         {
-            if (i < item.options.Length)
+            if (i < optCount)
             {
+                int origIdx = displayIndices[i];
                 optionButtons[i].gameObject.SetActive(true);
                 optionButtons[i].interactable = true;
 
                 // User manual sizes (sizeDelta and LayoutElement preferred/min width & height) are 100% preserved! Zero overrides!
 
-                if (optionTexts[i] != null) optionTexts[i].text = item.options[i];
+                if (optionTexts[i] != null && item.options != null && origIdx < item.options.Length)
+                    optionTexts[i].text = item.options[origIdx];
+
                 if (optionSubtitles[i] != null)
                 {
-                    bool hasSub = item.optionSubtitles != null && i < item.optionSubtitles.Length && !string.IsNullOrEmpty(item.optionSubtitles[i]);
+                    bool hasSub = item.optionSubtitles != null && origIdx < item.optionSubtitles.Length && !string.IsNullOrEmpty(item.optionSubtitles[origIdx]);
                     if (optionSubtitles[i].transform.parent != null && optionSubtitles[i].transform.parent != optionButtons[i].transform)
                     {
                         optionSubtitles[i].transform.parent.gameObject.SetActive(hasSub);
                     }
                     optionSubtitles[i].gameObject.SetActive(hasSub);
-                    if (hasSub) optionSubtitles[i].text = item.optionSubtitles[i];
+                    if (hasSub) optionSubtitles[i].text = item.optionSubtitles[origIdx];
                 }
 
                 if (optionBgImages[i] != null)
@@ -736,7 +811,7 @@ public class CargoGridGameManager : MonoBehaviour
         if (isAnsweringLocked) return;
 
         ActivityItem item = activityItems[currentItemIndex];
-        bool isCorrect = (optionIndex == item.correctOptionIndex);
+        bool isCorrect = (optionIndex == currentCorrectOptionIndex);
 
         if (isCorrect)
         {
@@ -794,7 +869,7 @@ public class CargoGridGameManager : MonoBehaviour
                 bayLightingGlow.DOFade(0.05f, 1f);
             }
 
-            ShowFeedback(true, $"🎉 AWESOME! SECTOR BALANCED! (+{totalAward} PTS)", item.voiceoverCorrect);
+            ShowFeedback(true, $" AWESOME! SECTOR BALANCED! (+{totalAward} PTS)", item.voiceoverCorrect);
         }
         else
         {
@@ -832,7 +907,7 @@ public class CargoGridGameManager : MonoBehaviour
                 botDialogueTMP.transform.DOPunchScale(Vector3.one * 0.12f, 0.3f);
             }
 
-            ShowFeedback(false, "🤖 OOPS! LET'S CHECK AGAIN!", item.voiceoverWrong);
+            ShowFeedback(false, "OOPS! LET'S CHECK AGAIN!", item.voiceoverWrong);
 
             // Auto-hide the feedback panel after 1.6s so player can easily read question again!
             DOVirtual.DelayedCall(1.6f, () => {
@@ -934,6 +1009,7 @@ public class CargoGridGameManager : MonoBehaviour
         currentStreak = 0;
         if (scoreTMP != null) scoreTMP.text = "SCORE: 0";
         if (streakTMP != null) streakTMP.text = "STREAK x1";
+        PrepareQuestionList();
         ShowScreenInstructions();
     }
 
