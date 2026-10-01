@@ -53,8 +53,19 @@ public class CargoGridGameManager : MonoBehaviour
     [Range(0.001f, 0.08f)]
     public float greetingTypingSpeed = 0.015f;
 
+    [Header("Robot Speech & Idle Motion Settings")]
+    [Tooltip("Height in pixels for the robot Y-axis hover motion while speaking and idling.")]
+    [Range(0f, 40f)]
+    public float speechVibrationHeight = 14f;
+
+    [Tooltip("Duration in seconds for one up/down cycle of the robot hover motion.")]
+    [Range(0.15f, 2.0f)]
+    public float speechVibrationSpeed = 0.65f;
+
     private Coroutine typewriterCoroutine;
     private bool isTypewriterFinished = false;
+    private Vector2 cachedBotAnchoredPos;
+    private bool hasCachedBotPos = false;
 
     [Header("Activity Screen HUD")]
     public TextMeshProUGUI topTitleTMP;
@@ -267,17 +278,6 @@ public class CargoGridGameManager : MonoBehaviour
         }
     }
 
-    private void Update()
-    {
-        // Allow player to tap/click or press space to quickly skip the intro typing sequence
-        if (screenInstructions != null && screenInstructions.activeSelf && !isTypewriterFinished)
-        {
-            if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))
-            {
-                SkipTypewriterInstructions();
-            }
-        }
-    }
 
     public void AutoDiscoverInstructionReferences()
     {
@@ -312,6 +312,12 @@ public class CargoGridGameManager : MonoBehaviour
                     break;
                 }
             }
+        }
+
+        if (botCharacterTransform != null && !hasCachedBotPos)
+        {
+            cachedBotAnchoredPos = botCharacterTransform.anchoredPosition;
+            hasCachedBotPos = true;
         }
 
         // Auto-discover Speech Card / Dialogue Box if null
@@ -386,7 +392,7 @@ public class CargoGridGameManager : MonoBehaviour
 
         AutoDiscoverInstructionReferences();
 
-        // Reset scales to zero for the choreographed entrance sequence
+        // Initial State: Scale elements to 0 without touching their anchored positions!
         if (titleLogoTransform != null)
         {
             titleLogoTransform.DOKill();
@@ -412,28 +418,31 @@ public class CargoGridGameManager : MonoBehaviour
             startCalibrationButton.gameObject.SetActive(false);
         }
 
-        string greetingText = "<color=#FFD700><b>ROBOT CARGO BUDDY LOAD-E SAYS:</b></color> <color=#00F0FF>\"HEY CADET! HELP ME BALANCE THE SHIP!\"</color>";
-        string missionText = 
-            "<b><color=#00F0FF>SECTOR 1: THE POPULAR PACKAGE (MODE)</color></b>\n" +
-            "<color=#E2E8F4>Find the cargo number that appears most often in the supply load!</color>\n\n" +
-            "<b><color=#2AFFA2>SECTOR 2: THE CENTER CONVEYOR (MEDIAN)</color></b>\n" +
-            "<color=#E2E8F4>Line up cargo weights in order and tap the container right in the exact center!</color>\n\n" +
-            "<b><color=#FFB800>SECTOR 3: FAIR SHARE BATTERIES (MEAN)</color></b>\n" +
-            "<color=#E2E8F4>Share energy rods equally until all four generator towers hold the exact same power!</color>\n\n" +
-            "<b><color=#99B4FF>SECTOR 4: DISTANCE GAP (RANGE)</color></b>  -  <b><color=#00F0FF>SECTOR 5: SAFE LANDING</color></b>\n" +
-            "<color=#E2E8F4>Measure sensor distance spreads and pick the calmest landing pad for takeoff!</color>";
-
-        // Pre-fill text with 0 characters visible
+        // Hide text characters initially (preserves authored text from unplay mode!)
         if (botGreetingTMP != null)
         {
-            botGreetingTMP.text = greetingText;
+            if (string.IsNullOrEmpty(botGreetingTMP.text))
+            {
+                botGreetingTMP.text = "<color=#FFD700><b>ROBOT CARGO BUDDY LOAD-E SAYS:</b></color> <color=#00F0FF>\"HEY CADET! HELP ME BALANCE THE SHIP!\"</color>";
+            }
             botGreetingTMP.maxVisibleCharacters = 0;
             botGreetingTMP.ForceMeshUpdate();
         }
 
         if (botInstructionTMP != null)
         {
-            botInstructionTMP.text = missionText;
+            if (string.IsNullOrEmpty(botInstructionTMP.text))
+            {
+                botInstructionTMP.text = 
+                    "<b><color=#00F0FF>SECTOR 1: THE POPULAR PACKAGE (MODE)</color></b>\n" +
+                    "<color=#E2E8F4>Find the cargo number that appears most often in the supply load!</color>\n\n" +
+                    "<b><color=#2AFFA2>SECTOR 2: THE CENTER CONVEYOR (MEDIAN)</color></b>\n" +
+                    "<color=#E2E8F4>Line up cargo weights in order and tap the container right in the exact center!</color>\n\n" +
+                    "<b><color=#FFB800>SECTOR 3: FAIR SHARE BATTERIES (MEAN)</color></b>\n" +
+                    "<color=#E2E8F4>Share energy rods equally until all four generator towers hold the exact same power!</color>\n\n" +
+                    "<b><color=#99B4FF>SECTOR 4: DISTANCE GAP (RANGE)</color></b>  -  <b><color=#00F0FF>SECTOR 5: SAFE LANDING</color></b>\n" +
+                    "<color=#E2E8F4>Measure sensor distance spreads and pick the calmest landing pad for takeoff!</color>";
+            }
             botInstructionTMP.maxVisibleCharacters = 0;
             botInstructionTMP.ForceMeshUpdate();
         }
@@ -445,20 +454,17 @@ public class CargoGridGameManager : MonoBehaviour
         if (titleLogoTransform != null)
         {
             titleLogoTransform.localScale = Vector3.zero;
-            titleLogoTransform.DOScale(1f, 0.45f).SetEase(Ease.OutBack);
+            titleLogoTransform.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
         }
         yield return new WaitForSeconds(0.38f);
 
         // =====================================================================
-        // STEP 2: THEN ROBOT MASCOT "LOAD-E" POPS UP
+        // STEP 2: THEN ROBOT MASCOT "LOAD-E" POPS UP (At exact authored position!)
         // =====================================================================
         if (botCharacterTransform != null)
         {
             botCharacterTransform.localScale = Vector3.zero;
-            botCharacterTransform.DOScale(1f, 0.45f).SetEase(Ease.OutBack);
-            // Initiate gentle hover once popped
-            botCharacterTransform.anchoredPosition = new Vector2(botCharacterTransform.anchoredPosition.x, -50f);
-            botCharacterTransform.DOAnchorPosY(-30f, 1.4f).SetLoops(-1, LoopType.Yoyo).SetEase(Ease.InOutSine).SetDelay(0.45f);
+            botCharacterTransform.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
         }
         yield return new WaitForSeconds(0.38f);
 
@@ -468,16 +474,29 @@ public class CargoGridGameManager : MonoBehaviour
         if (instructionCard != null)
         {
             instructionCard.localScale = Vector3.zero;
-            instructionCard.DOScale(1f, 0.45f).SetEase(Ease.OutBack);
+            instructionCard.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
         }
         yield return new WaitForSeconds(0.42f);
 
         // =====================================================================
-        // STEP 4: THEN START TYPING (Controlled Typing Speed)
+        // STEP 4: THEN START TYPING (Smooth Conversational Speech Motion)
         // =====================================================================
+        // Start smooth, natural conversational speech floating on the robot along the Y axis
+        if (botCharacterTransform != null)
+        {
+            botCharacterTransform.DOKill();
+            botCharacterTransform.anchoredPosition = cachedBotAnchoredPos;
+            botCharacterTransform.localEulerAngles = Vector3.zero;
+            botCharacterTransform.localScale = Vector3.one;
+            botCharacterTransform.DOAnchorPosY(cachedBotAnchoredPos.y + speechVibrationHeight, speechVibrationSpeed)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetEase(Ease.InOutSine);
+        }
+
         // 4A. Type Header Greeting
         if (botGreetingTMP != null)
         {
+            botGreetingTMP.ForceMeshUpdate();
             int totalGreetingChars = botGreetingTMP.textInfo.characterCount;
             for (int i = 0; i <= totalGreetingChars; i++)
             {
@@ -486,33 +505,36 @@ public class CargoGridGameManager : MonoBehaviour
             }
         }
 
-        // Mascot cheer bounce after greeting
+        // Conversational scale nod transition between greeting and instructions
         if (botCharacterTransform != null)
         {
-            botCharacterTransform.DOPunchScale(Vector3.one * 0.08f, 0.25f, 5, 1f);
+            botCharacterTransform.DOPunchScale(Vector3.one * 0.05f, 0.2f, 3, 1f);
         }
         yield return new WaitForSeconds(0.12f);
 
         // 4B. Type Mission Instructions
         if (botInstructionTMP != null)
         {
+            botInstructionTMP.ForceMeshUpdate();
             int totalMissionChars = botInstructionTMP.textInfo.characterCount;
             for (int i = 0; i <= totalMissionChars; i++)
             {
                 botInstructionTMP.maxVisibleCharacters = i;
-
-                // Subtle robotic speaking gestures during dialogue typing
-                if (i % 25 == 0 && botCharacterTransform != null)
-                {
-                    botCharacterTransform.DOPunchPosition(new Vector3(0, 3f, 0), 0.12f);
-                }
-
                 yield return new WaitForSeconds(Mathf.Max(0.001f, typingSpeed));
             }
         }
 
         isTypewriterFinished = true;
-        yield return new WaitForSeconds(0.15f);
+
+        // When dialogue is finished, KEEP the up-and-down hovering motion running continuously!
+        if (botCharacterTransform != null && !DOTween.IsTweening(botCharacterTransform))
+        {
+            botCharacterTransform.DOAnchorPosY(cachedBotAnchoredPos.y + speechVibrationHeight, speechVibrationSpeed)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetEase(Ease.InOutSine);
+        }
+
+        yield return new WaitForSeconds(0.1f);
 
         // =====================================================================
         // STEP 5: AFTER TYPING, SHOW START BUTTON POP
@@ -522,7 +544,7 @@ public class CargoGridGameManager : MonoBehaviour
             startCalibrationButton.gameObject.SetActive(true);
             startCalibrationButton.transform.DOKill();
             startCalibrationButton.transform.localScale = Vector3.zero;
-            startCalibrationButton.transform.DOScale(1f, 0.45f).SetEase(Ease.OutBack);
+            startCalibrationButton.transform.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
         }
     }
 
@@ -534,7 +556,6 @@ public class CargoGridGameManager : MonoBehaviour
 
         AutoDiscoverInstructionReferences();
 
-        // Immediately expand Title, Mascot, Speech Card, and Start Button to 1
         if (titleLogoTransform != null)
         {
             titleLogoTransform.DOKill();
@@ -544,9 +565,12 @@ public class CargoGridGameManager : MonoBehaviour
         if (botCharacterTransform != null)
         {
             botCharacterTransform.DOKill();
+            botCharacterTransform.anchoredPosition = cachedBotAnchoredPos;
+            botCharacterTransform.localEulerAngles = Vector3.zero;
             botCharacterTransform.localScale = Vector3.one;
-            botCharacterTransform.anchoredPosition = new Vector2(botCharacterTransform.anchoredPosition.x, -50f);
-            botCharacterTransform.DOAnchorPosY(-30f, 1.4f).SetLoops(-1, LoopType.Yoyo).SetEase(Ease.InOutSine);
+            botCharacterTransform.DOAnchorPosY(cachedBotAnchoredPos.y + speechVibrationHeight, speechVibrationSpeed)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetEase(Ease.InOutSine);
         }
 
         if (instructionCard != null)
@@ -557,12 +581,12 @@ public class CargoGridGameManager : MonoBehaviour
 
         if (botGreetingTMP != null)
         {
-            botGreetingTMP.maxVisibleCharacters = botGreetingTMP.textInfo.characterCount;
+            botGreetingTMP.maxVisibleCharacters = int.MaxValue;
         }
 
         if (botInstructionTMP != null)
         {
-            botInstructionTMP.maxVisibleCharacters = botInstructionTMP.textInfo.characterCount;
+            botInstructionTMP.maxVisibleCharacters = int.MaxValue;
         }
 
         if (startCalibrationButton != null)

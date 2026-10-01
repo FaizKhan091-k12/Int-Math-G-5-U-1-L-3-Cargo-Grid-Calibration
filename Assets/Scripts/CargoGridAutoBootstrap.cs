@@ -10,6 +10,12 @@ public class CargoGridAutoBootstrap : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void OnSceneLoaded()
     {
+        // If the scene already has a Canvas or CargoGridGameManager, preserve all user edits and do NOT rebuild!
+        if (Object.FindAnyObjectByType<CargoGridGameManager>() != null || Object.FindAnyObjectByType<Canvas>() != null)
+        {
+            return;
+        }
+
         BuildRuntimeSetup();
     }
 
@@ -251,7 +257,6 @@ public class CargoGridAutoBootstrap : MonoBehaviour
         speechCardRT.anchoredPosition = new Vector2(-20, 0);
         speechCardRT.sizeDelta = new Vector2(1100, 460);
         CreateProceduralCard(speechCard, new Color(0.05f, 0.09f, 0.18f, 0.96f), 20f);
-        Button speechCardBtn = speechCard.AddComponent<Button>();
 
         // Top Cyan Glow Line
         GameObject speechAccent = CreateUIElement("SpeechAccentBar", speechCard.transform);
@@ -1076,7 +1081,6 @@ public class CargoGridAutoBootstrap : MonoBehaviour
         gm.botCharacterTransform = botRT;
         gm.botGreetingTMP = greetTMP;
         gm.botInstructionTMP = listTMP;
-        speechCardBtn.onClick.AddListener(() => gm.SkipTypewriterInstructions());
         gm.topTitleTMP = topTitleTMP;
         gm.stageIndicatorTMP = null;
         gm.stageDots = stageDots;
