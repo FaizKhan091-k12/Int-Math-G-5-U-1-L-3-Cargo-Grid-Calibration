@@ -106,6 +106,25 @@ public class CargoGridGameManager : MonoBehaviour
     public Image screenFlashOverlay;
     public Image bayLightingGlow;
 
+    [Header("Player Health (Hearts) Settings")]
+    [Tooltip("Maximum player lives (hearts). Default 3.")]
+    public int maxLives = 3;
+    public int currentLives = 3;
+    public Transform heartsContainer;
+    public Image[] heartFullImages;
+    public Image[] heartEmptyImages;
+    public Sprite heartFullSprite;
+    public Sprite heartEmptySprite;
+
+    [Header("Try Again (Game Over) Panel")]
+    public GameObject tryAgainPanel;
+    public RectTransform tryAgainCard;
+    public Button tryAgainButton;
+    public TextMeshProUGUI tryAgainTitleTMP;
+    public TextMeshProUGUI tryAgainMessageTMP;
+    [Tooltip("If true, clicking Try Again restarts the mission from Sector 01. If false, retries the current Sector.")]
+    public bool restartFromFirstSectorOnGameOver = true;
+
     [Header("Randomization Settings")]
     [Tooltip("If enabled, the order of the questions/sectors is shuffled when starting or replaying the mission.")]
     public bool randomizeQuestions = true;
@@ -122,8 +141,18 @@ public class CargoGridGameManager : MonoBehaviour
     private bool isAnsweringLocked = false;
 
     [Header("Scoring System")]
+    [Tooltip("Base score awarded for each correct question.")]
+    public int baseScorePerQuestion = 500;
+
+    [Tooltip("Bonus score added for every consecutive streak level (e.g. Streak 2 = +200, Streak 3 = +400, etc.).")]
+    public int streakBonusPerCount = 200;
+
+    [Tooltip("Total bonus points earned purely from streaks during the current mission.")]
+    public int totalStreakBonusEarned = 0;
+
     public int currentScore = 0;
     public int currentStreak = 0;
+    public int highestStreak = 0;
     public TextMeshProUGUI scoreTMP;
     public TextMeshProUGUI streakTMP;
     public TextMeshProUGUI floatingBonusTMP;
@@ -183,6 +212,9 @@ public class CargoGridGameManager : MonoBehaviour
     {
         EnsureActivityItems();
         PrepareQuestionList();
+        AutoSetupHeartsUI();
+        AutoSetupTryAgainUI();
+        ResetHeartsUI();
         SetupButtonListeners();
         ShowScreenInstructions();
     }
@@ -330,6 +362,12 @@ public class CargoGridGameManager : MonoBehaviour
             playAgainButton.onClick.AddListener(OnPlayAgainClicked);
         }
 
+        if (tryAgainButton != null)
+        {
+            tryAgainButton.onClick.RemoveAllListeners();
+            tryAgainButton.onClick.AddListener(OnTryAgainClicked);
+        }
+
         if (muteButton != null)
         {
             muteButton.onClick.RemoveAllListeners();
@@ -439,6 +477,7 @@ public class CargoGridGameManager : MonoBehaviour
         if (screenInstructions != null) screenInstructions.SetActive(true);
         if (screenActivity != null) screenActivity.SetActive(false);
         if (screenVictory != null) screenVictory.SetActive(false);
+        if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
         if (feedbackPanel != null) feedbackPanel.SetActive(false);
 
         AutoDiscoverInstructionReferences();
@@ -678,11 +717,14 @@ public class CargoGridGameManager : MonoBehaviour
         Debug.Log("[CargoGrid] Start Mission Clicked! Transitioning to Level 1...");
         SkipTypewriterInstructions();
         PrepareQuestionList();
+        currentLives = maxLives;
+        ResetHeartsUI();
         if (AudioManager.instance != null) AudioManager.instance.PlayClick();
 
         if (screenInstructions != null) screenInstructions.SetActive(false);
         if (screenActivity != null) screenActivity.SetActive(true);
         if (screenVictory != null) screenVictory.SetActive(false);
+        if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
 
         currentItemIndex = 0;
         LoadStage(currentItemIndex);
@@ -701,6 +743,8 @@ public class CargoGridGameManager : MonoBehaviour
         ActivityItem item = activityItems[index];
 
         if (feedbackPanel != null) feedbackPanel.SetActive(false);
+        if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
+        AutoSetupHeartsUI();
 
         // Update Top HUD
         if (stageIndicatorTMP != null)
@@ -819,8 +863,11 @@ public class CargoGridGameManager : MonoBehaviour
             if (AudioManager.instance != null) AudioManager.instance.PlayCorrect();
 
             currentStreak++;
-            int basePoints = 500;
-            int streakBonus = (currentStreak > 1) ? (currentStreak - 1) * 150 : 0;
+            if (currentStreak > highestStreak) highestStreak = currentStreak;
+
+            int basePoints = baseScorePerQuestion;
+            int streakBonus = (currentStreak > 1) ? (currentStreak - 1) * streakBonusPerCount : 0;
+            totalStreakBonusEarned += streakBonus;
             int totalAward = basePoints + streakBonus;
 
             int oldScore = currentScore;
@@ -838,23 +885,38 @@ public class CargoGridGameManager : MonoBehaviour
 
             if (streakTMP != null)
             {
-                streakTMP.text = currentStreak > 1 ? $"STREAK x{currentStreak}!" : "STREAK x1";
-                streakTMP.color = currentStreak > 1 ? colorNeonAmber : colorNeonCyan;
+                if (currentStreak > 1)
+                {
+                    streakTMP.text = $"STREAK x{currentStreak}! (+{streakBonus} BONUS)";
+                    streakTMP.color = colorNeonAmber;
+                }
+                else
+                {
+                    streakTMP.text = "STREAK x1";
+                    streakTMP.color = colorNeonCyan;
+                }
                 streakTMP.transform.DOKill();
-                streakTMP.transform.DOPunchScale(Vector3.one * 0.2f, 0.3f);
+                streakTMP.transform.DOPunchScale(Vector3.one * 0.25f, 0.35f, 8, 1f);
             }
 
             if (floatingBonusTMP != null)
             {
-                floatingBonusTMP.text = $"+{totalAward} PTS!" + (currentStreak > 1 ? $" (STREAK x{currentStreak}!)" : "");
+                if (streakBonus > 0)
+                {
+                    floatingBonusTMP.text = $"<color=#00E5FF>+{basePoints} PTS</color>\n<size=80%><color=#FFB800> +{streakBonus} STREAK BONUS! (x{currentStreak})</color></size>";
+                }
+                else
+                {
+                    floatingBonusTMP.text = $"+{basePoints} PTS";
+                }
                 floatingBonusTMP.gameObject.SetActive(true);
                 floatingBonusTMP.transform.DOKill();
                 floatingBonusTMP.transform.position = optionButtons[optionIndex].transform.position + new Vector3(0, 110, 0);
                 floatingBonusTMP.transform.localScale = Vector3.zero;
                 floatingBonusTMP.alpha = 1f;
-                floatingBonusTMP.transform.DOScale(1.2f, 0.25f).SetEase(Ease.OutBack);
-                floatingBonusTMP.transform.DOMoveY(floatingBonusTMP.transform.position.y + 50f, 0.8f).SetEase(Ease.OutCubic);
-                floatingBonusTMP.DOFade(0f, 0.8f).SetDelay(0.35f).OnComplete(() => floatingBonusTMP.gameObject.SetActive(false));
+                floatingBonusTMP.transform.DOScale(streakBonus > 0 ? 1.35f : 1.15f, 0.25f).SetEase(Ease.OutBack);
+                floatingBonusTMP.transform.DOMoveY(floatingBonusTMP.transform.position.y + 60f, 0.85f).SetEase(Ease.OutCubic);
+                floatingBonusTMP.DOFade(0f, 0.85f).SetDelay(0.4f).OnComplete(() => floatingBonusTMP.gameObject.SetActive(false));
             }
 
             if (optionBgImages[optionIndex] != null)
@@ -869,7 +931,10 @@ public class CargoGridGameManager : MonoBehaviour
                 bayLightingGlow.DOFade(0.05f, 1f);
             }
 
-            ShowFeedback(true, $" AWESOME! SECTOR BALANCED! (+{totalAward} PTS)", item.voiceoverCorrect);
+            string feedbackTitle = (streakBonus > 0)
+                ? $" AWESOME! SECTOR BALANCED! (+{totalAward} PTS)\n<color=#FFAA00> STREAK x{currentStreak}! (+{streakBonus} BONUS PTS)</color>"
+                : $" AWESOME! SECTOR BALANCED! (+{totalAward} PTS)";
+            ShowFeedback(true, feedbackTitle, item.voiceoverCorrect);
         }
         else
         {
@@ -881,6 +946,11 @@ public class CargoGridGameManager : MonoBehaviour
                 streakTMP.text = "STREAK x1";
                 streakTMP.color = new Color(0.6f, 0.7f, 0.85f, 0.8f);
             }
+
+            // Deduct one heart / life
+            currentLives--;
+            if (currentLives < 0) currentLives = 0;
+            UpdateHeartsUI(true);
 
             // Wrong button flashes red, shakes, and reverts back after 0.9s
             if (optionBgImages[optionIndex] != null)
@@ -905,6 +975,16 @@ public class CargoGridGameManager : MonoBehaviour
                 botDialogueTMP.text = $"<color=#FFAA00>LOAD-E: \"{item.voiceoverWrong}\"</color>";
                 botDialogueTMP.transform.DOKill();
                 botDialogueTMP.transform.DOPunchScale(Vector3.one * 0.12f, 0.3f);
+            }
+
+            if (currentLives <= 0)
+            {
+                isAnsweringLocked = true;
+                ShowFeedback(false, "OUT OF SHIELDS!", "All 3 cargo integrity shields depleted! Recalibrating...");
+                DOVirtual.DelayedCall(1.0f, () => {
+                    ShowTryAgainScreen();
+                });
+                return;
             }
 
             ShowFeedback(false, "OOPS! LET'S CHECK AGAIN!", item.voiceoverWrong);
@@ -979,6 +1059,7 @@ public class CargoGridGameManager : MonoBehaviour
 
         if (screenActivity != null) screenActivity.SetActive(false);
         if (screenVictory != null) screenVictory.SetActive(true);
+        if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
 
         if (energyBarFill != null)
         {
@@ -992,13 +1073,20 @@ public class CargoGridGameManager : MonoBehaviour
 
         if (victoryScoreTMP != null)
         {
-            victoryScoreTMP.text = $"MISSION SCORE: {currentScore:N0} PTS";
+            victoryScoreTMP.text = "MISSION SCORE: 0 PTS";
         }
 
         if (victoryCard != null)
         {
             victoryCard.localScale = Vector3.zero;
-            victoryCard.DOScale(1f, 0.5f).SetEase(Ease.OutBack);
+            victoryCard.DOScale(1f, 0.5f).SetEase(Ease.OutBack).OnComplete(() =>
+            {
+                AnimateVictoryScoreRollup();
+            });
+        }
+        else
+        {
+            AnimateVictoryScoreRollup();
         }
     }
 
@@ -1007,8 +1095,13 @@ public class CargoGridGameManager : MonoBehaviour
         if (AudioManager.instance != null) AudioManager.instance.PlayClick();
         currentScore = 0;
         currentStreak = 0;
+        highestStreak = 0;
+        totalStreakBonusEarned = 0;
+        currentLives = maxLives;
+        ResetHeartsUI();
         if (scoreTMP != null) scoreTMP.text = "SCORE: 0";
         if (streakTMP != null) streakTMP.text = "STREAK x1";
+        if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
         PrepareQuestionList();
         ShowScreenInstructions();
     }
@@ -1060,5 +1153,466 @@ public class CargoGridGameManager : MonoBehaviour
         screenFlashOverlay.DOKill();
         screenFlashOverlay.color = flashColor;
         screenFlashOverlay.DOFade(0f, duration).SetEase(Ease.OutQuad);
+    }
+
+    // =========================================================================
+    // HEALTH (3 HEARTS) SYSTEM
+    // =========================================================================
+    public void AutoSetupHeartsUI()
+    {
+        if (heartFullImages != null && heartFullImages.Length == maxLives && heartFullImages[0] != null)
+        {
+            return;
+        }
+
+        // Locate TopBar
+        Transform topBarTransform = null;
+        if (muteButton != null && muteButton.transform.parent != null)
+        {
+            topBarTransform = muteButton.transform.parent;
+        }
+        else if (screenActivity != null)
+        {
+            topBarTransform = screenActivity.transform.Find("TopBar");
+            if (topBarTransform == null)
+            {
+                foreach (Transform child in screenActivity.transform)
+                {
+                    if (child.name.ToLower().Contains("topbar") || child.name.ToLower().Contains("top_bar"))
+                    {
+                        topBarTransform = child;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (topBarTransform == null) return;
+
+        // Check if HealthContainer already exists under TopBar
+        Transform existingHc = topBarTransform.Find("HealthContainer");
+        if (existingHc != null)
+        {
+            heartsContainer = existingHc;
+        }
+        else
+        {
+            GameObject hcObj = new GameObject("HealthContainer", typeof(RectTransform));
+            hcObj.transform.SetParent(topBarTransform, false);
+            RectTransform rt = hcObj.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.79f, 0.5f);
+            rt.anchorMax = new Vector2(0.79f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(138f, 44f);
+
+            Image bgImg = hcObj.AddComponent<Image>();
+            bgImg.color = new Color(0.06f, 0.12f, 0.22f, 0.92f);
+            heartsContainer = hcObj.transform;
+        }
+
+        if (heartFullSprite == null)
+            heartFullSprite = Resources.Load<Sprite>("CargoGrid/Sprites/heart_full");
+        if (heartEmptySprite == null)
+            heartEmptySprite = Resources.Load<Sprite>("CargoGrid/Sprites/heart_empty");
+
+        if (heartFullSprite == null)
+            heartFullSprite = CreateProceduralHeartSprite(true);
+        if (heartEmptySprite == null)
+            heartEmptySprite = CreateProceduralHeartSprite(false);
+
+        heartFullImages = new Image[maxLives];
+        heartEmptyImages = new Image[maxLives];
+
+        float startX = -38f;
+        float spacingX = 38f;
+
+        for (int i = 0; i < maxLives; i++)
+        {
+            string slotName = $"HeartSlot_{i}";
+            Transform slotT = heartsContainer.Find(slotName);
+            GameObject slotObj;
+            if (slotT == null)
+            {
+                slotObj = new GameObject(slotName, typeof(RectTransform));
+                slotObj.transform.SetParent(heartsContainer, false);
+                RectTransform slotRt = slotObj.GetComponent<RectTransform>();
+                slotRt.anchorMin = new Vector2(0.5f, 0.5f);
+                slotRt.anchorMax = new Vector2(0.5f, 0.5f);
+                slotRt.pivot = new Vector2(0.5f, 0.5f);
+                slotRt.anchoredPosition = new Vector2(startX + i * spacingX, 0f);
+                slotRt.sizeDelta = new Vector2(30f, 30f);
+            }
+            else
+            {
+                slotObj = slotT.gameObject;
+            }
+
+            Transform emptyT = slotObj.transform.Find("Empty");
+            GameObject emptyObj;
+            if (emptyT == null)
+            {
+                emptyObj = new GameObject("Empty", typeof(RectTransform), typeof(Image));
+                emptyObj.transform.SetParent(slotObj.transform, false);
+                RectTransform eRt = emptyObj.GetComponent<RectTransform>();
+                eRt.anchorMin = Vector2.zero;
+                eRt.anchorMax = Vector2.one;
+                eRt.sizeDelta = Vector2.zero;
+            }
+            else
+            {
+                emptyObj = emptyT.gameObject;
+            }
+            Image emptyImg = emptyObj.GetComponent<Image>();
+            emptyImg.sprite = heartEmptySprite;
+            emptyImg.color = new Color(1f, 1f, 1f, 0.7f);
+            emptyImg.preserveAspect = true;
+            heartEmptyImages[i] = emptyImg;
+
+            Transform fullT = slotObj.transform.Find("Full");
+            GameObject fullObj;
+            if (fullT == null)
+            {
+                fullObj = new GameObject("Full", typeof(RectTransform), typeof(Image));
+                fullObj.transform.SetParent(slotObj.transform, false);
+                RectTransform fRt = fullObj.GetComponent<RectTransform>();
+                fRt.anchorMin = Vector2.zero;
+                fRt.anchorMax = Vector2.one;
+                fRt.sizeDelta = Vector2.zero;
+            }
+            else
+            {
+                fullObj = fullT.gameObject;
+            }
+            Image fullImg = fullObj.GetComponent<Image>();
+            fullImg.sprite = heartFullSprite;
+            fullImg.color = Color.white;
+            fullImg.preserveAspect = true;
+            heartFullImages[i] = fullImg;
+        }
+    }
+
+    private Sprite CreateProceduralHeartSprite(bool isFilled)
+    {
+        int size = 64;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Color[] cols = new Color[size * size];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float nx = (x - size * 0.5f) / (size * 0.38f);
+                float ny = (y - size * 0.42f) / (size * 0.38f);
+                float a = nx * nx + ny * ny - 1f;
+                float val = a * a * a - nx * nx * ny * ny * ny;
+
+                if (val <= 0.05f)
+                {
+                    if (isFilled)
+                    {
+                        cols[y * size + x] = new Color(1f, 0.15f, 0.35f, 1f);
+                    }
+                    else
+                    {
+                        bool isEdge = val >= -0.3f;
+                        cols[y * size + x] = isEdge ? new Color(0.4f, 0.6f, 0.85f, 0.7f) : new Color(0.08f, 0.14f, 0.22f, 0.5f);
+                    }
+                }
+                else
+                {
+                    cols[y * size + x] = Color.clear;
+                }
+            }
+        }
+
+        tex.SetPixels(cols);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+    }
+
+    public void ResetHeartsUI()
+    {
+        AutoSetupHeartsUI();
+        currentLives = maxLives;
+
+        if (heartFullImages == null) return;
+
+        for (int i = 0; i < heartFullImages.Length; i++)
+        {
+            if (heartFullImages[i] != null)
+            {
+                heartFullImages[i].gameObject.SetActive(true);
+                heartFullImages[i].transform.DOKill();
+                heartFullImages[i].transform.localScale = Vector3.zero;
+                heartFullImages[i].transform.DOScale(Vector3.one, 0.35f).SetEase(Ease.OutBack).SetDelay(i * 0.1f);
+            }
+        }
+    }
+
+    public void UpdateHeartsUI(bool animateLoss = false)
+    {
+        AutoSetupHeartsUI();
+        if (heartFullImages == null) return;
+
+        for (int i = 0; i < heartFullImages.Length; i++)
+        {
+            if (heartFullImages[i] == null) continue;
+
+            if (i < currentLives)
+            {
+                heartFullImages[i].gameObject.SetActive(true);
+                heartFullImages[i].transform.localScale = Vector3.one;
+            }
+            else
+            {
+                if (animateLoss && i == currentLives)
+                {
+                    int lostIdx = i;
+                    heartFullImages[lostIdx].transform.DOKill();
+                    heartFullImages[lostIdx].transform.DOPunchScale(Vector3.one * 0.45f, 0.2f, 6, 1f).OnComplete(() =>
+                    {
+                        heartFullImages[lostIdx].transform.DOScale(Vector3.zero, 0.3f).SetEase(Ease.InBack).OnComplete(() =>
+                        {
+                            heartFullImages[lostIdx].gameObject.SetActive(false);
+                        });
+                    });
+                }
+                else
+                {
+                    heartFullImages[i].transform.DOKill();
+                    heartFullImages[i].transform.localScale = Vector3.zero;
+                    heartFullImages[i].gameObject.SetActive(false);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // TRY AGAIN (GAME OVER) PANEL
+    // =========================================================================
+    public void AutoSetupTryAgainUI()
+    {
+        if (tryAgainPanel != null) return;
+
+        Canvas canvas = null;
+        if (screenActivity != null && screenActivity.transform.parent != null)
+        {
+            canvas = screenActivity.transform.parent.GetComponent<Canvas>();
+        }
+        if (canvas == null) canvas = FindObjectOfType<Canvas>();
+        if (canvas == null) return;
+
+        Transform existing = canvas.transform.Find("Screen_TryAgain");
+        if (existing != null)
+        {
+            tryAgainPanel = existing.gameObject;
+            tryAgainCard = existing.Find("TryAgainCard") as RectTransform;
+            tryAgainButton = tryAgainPanel.GetComponentInChildren<Button>(true);
+            var tmps = tryAgainPanel.GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var t in tmps)
+            {
+                if (t.gameObject.name.Contains("Title")) tryAgainTitleTMP = t;
+                else if (t.gameObject.name.Contains("Message") || t.gameObject.name.Contains("Dialogue")) tryAgainMessageTMP = t;
+            }
+            if (tryAgainButton != null)
+            {
+                tryAgainButton.onClick.RemoveAllListeners();
+                tryAgainButton.onClick.AddListener(OnTryAgainClicked);
+            }
+            return;
+        }
+
+        GameObject panelObj = new GameObject("Screen_TryAgain", typeof(RectTransform));
+        panelObj.transform.SetParent(canvas.transform, false);
+        RectTransform panelRt = panelObj.GetComponent<RectTransform>();
+        panelRt.anchorMin = Vector2.zero;
+        panelRt.anchorMax = Vector2.one;
+        panelRt.sizeDelta = Vector2.zero;
+        panelRt.anchoredPosition = Vector2.zero;
+
+        Image backdrop = panelObj.AddComponent<Image>();
+        backdrop.color = new Color(0.02f, 0.05f, 0.12f, 0.88f);
+
+        GameObject cardObj = new GameObject("TryAgainCard", typeof(RectTransform), typeof(Image));
+        cardObj.transform.SetParent(panelObj.transform, false);
+        tryAgainCard = cardObj.GetComponent<RectTransform>();
+        tryAgainCard.anchorMin = new Vector2(0.5f, 0.5f);
+        tryAgainCard.anchorMax = new Vector2(0.5f, 0.5f);
+        tryAgainCard.pivot = new Vector2(0.5f, 0.5f);
+        tryAgainCard.anchoredPosition = Vector2.zero;
+        tryAgainCard.sizeDelta = new Vector2(880f, 520f);
+
+        Image cardImg = cardObj.GetComponent<Image>();
+        cardImg.color = new Color(0.06f, 0.1f, 0.18f, 0.98f);
+
+        // Header Title TMP
+        GameObject titleObj = new GameObject("TryAgainTitle", typeof(RectTransform), typeof(TextMeshProUGUI));
+        titleObj.transform.SetParent(cardObj.transform, false);
+        RectTransform titleRt = titleObj.GetComponent<RectTransform>();
+        titleRt.anchorMin = new Vector2(0.5f, 1f);
+        titleRt.anchorMax = new Vector2(0.5f, 1f);
+        titleRt.pivot = new Vector2(0.5f, 1f);
+        titleRt.anchoredPosition = new Vector2(0f, -45f);
+        titleRt.sizeDelta = new Vector2(780f, 70f);
+
+        tryAgainTitleTMP = titleObj.GetComponent<TextMeshProUGUI>();
+        tryAgainTitleTMP.text = "CALIBRATION COMPROMISED!";
+        tryAgainTitleTMP.fontSize = 38;
+        tryAgainTitleTMP.fontStyle = FontStyles.Bold;
+        tryAgainTitleTMP.alignment = TextAlignmentOptions.Center;
+        tryAgainTitleTMP.color = new Color(1f, 0.28f, 0.35f, 1f);
+        if (topTitleTMP != null) tryAgainTitleTMP.font = topTitleTMP.font;
+
+        // Subtitle / Dialogue TMP
+        GameObject msgObj = new GameObject("TryAgainMessage", typeof(RectTransform), typeof(TextMeshProUGUI));
+        msgObj.transform.SetParent(cardObj.transform, false);
+        RectTransform msgRt = msgObj.GetComponent<RectTransform>();
+        msgRt.anchorMin = new Vector2(0.5f, 0.5f);
+        msgRt.anchorMax = new Vector2(0.5f, 0.5f);
+        msgRt.pivot = new Vector2(0.5f, 0.5f);
+        msgRt.anchoredPosition = new Vector2(0f, 20f);
+        msgRt.sizeDelta = new Vector2(740f, 150f);
+
+        tryAgainMessageTMP = msgObj.GetComponent<TextMeshProUGUI>();
+        tryAgainMessageTMP.text = "All 3 cargo integrity shields were depleted!\n\n<color=#00E5FF>LOAD-E: \"Don't give up cadet! Recalibrate the grid and try again!\"</color>";
+        tryAgainMessageTMP.fontSize = 24;
+        tryAgainMessageTMP.alignment = TextAlignmentOptions.Center;
+        tryAgainMessageTMP.color = new Color(0.85f, 0.92f, 1f, 0.95f);
+        if (topTitleTMP != null) tryAgainMessageTMP.font = topTitleTMP.font;
+
+        // Try Again Button
+        GameObject btnObj = new GameObject("TryAgainButton", typeof(RectTransform), typeof(Image), typeof(Button));
+        btnObj.transform.SetParent(cardObj.transform, false);
+        RectTransform btnRt = btnObj.GetComponent<RectTransform>();
+        btnRt.anchorMin = new Vector2(0.5f, 0f);
+        btnRt.anchorMax = new Vector2(0.5f, 0f);
+        btnRt.pivot = new Vector2(0.5f, 0f);
+        btnRt.anchoredPosition = new Vector2(0f, 50f);
+        btnRt.sizeDelta = new Vector2(320f, 68f);
+
+        Image btnImg = btnObj.GetComponent<Image>();
+        btnImg.color = colorNeonCyan;
+
+        tryAgainButton = btnObj.GetComponent<Button>();
+        tryAgainButton.onClick.RemoveAllListeners();
+        tryAgainButton.onClick.AddListener(OnTryAgainClicked);
+
+        GameObject btnTxtObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+        btnTxtObj.transform.SetParent(btnObj.transform, false);
+        RectTransform btnTxtRt = btnTxtObj.GetComponent<RectTransform>();
+        btnTxtRt.anchorMin = Vector2.zero;
+        btnTxtRt.anchorMax = Vector2.one;
+        btnTxtRt.sizeDelta = Vector2.zero;
+
+        TextMeshProUGUI btnTxt = btnTxtObj.GetComponent<TextMeshProUGUI>();
+        btnTxt.text = "TRY AGAIN ↺";
+        btnTxt.fontSize = 28;
+        btnTxt.fontStyle = FontStyles.Bold;
+        btnTxt.alignment = TextAlignmentOptions.Center;
+        btnTxt.color = new Color(0.02f, 0.08f, 0.16f, 1f);
+        if (topTitleTMP != null) btnTxt.font = topTitleTMP.font;
+
+        panelObj.SetActive(false);
+        tryAgainPanel = panelObj;
+    }
+
+    public void ShowTryAgainScreen()
+    {
+        AutoSetupTryAgainUI();
+        if (tryAgainPanel == null) return;
+
+        if (feedbackPanel != null) feedbackPanel.SetActive(false);
+        tryAgainPanel.SetActive(true);
+
+        if (tryAgainCard != null)
+        {
+            tryAgainCard.DOKill();
+            tryAgainCard.localScale = Vector3.zero;
+            tryAgainCard.DOScale(Vector3.one, 0.45f).SetEase(Ease.OutBack);
+        }
+
+        if (tryAgainMessageTMP != null)
+        {
+            tryAgainMessageTMP.text = $"All 3 cargo integrity shields were depleted!\nSector Reached: 0{currentItemIndex + 1} / 0{activityItems.Count}  •  Score: {currentScore:N0} PTS\n\n<color=#00E5FF>LOAD-E: \"Don't give up cadet! Recalibrate the grid and try again!\"</color>";
+        }
+    }
+
+    public void OnTryAgainClicked()
+    {
+        if (AudioManager.instance != null) AudioManager.instance.PlayClick();
+
+        if (tryAgainCard != null)
+        {
+            tryAgainCard.DOKill();
+            tryAgainCard.DOScale(Vector3.zero, 0.25f).SetEase(Ease.InBack).OnComplete(() =>
+            {
+                if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
+                ResetMissionAfterTryAgain();
+            });
+        }
+        else
+        {
+            if (tryAgainPanel != null) tryAgainPanel.SetActive(false);
+            ResetMissionAfterTryAgain();
+        }
+    }
+
+    private void ResetMissionAfterTryAgain()
+    {
+        currentLives = maxLives;
+        ResetHeartsUI();
+        isAnsweringLocked = false;
+
+        if (restartFromFirstSectorOnGameOver)
+        {
+            currentScore = 0;
+            currentStreak = 0;
+            highestStreak = 0;
+            totalStreakBonusEarned = 0;
+            if (scoreTMP != null) scoreTMP.text = "SCORE: 0";
+            if (streakTMP != null) streakTMP.text = "STREAK x1";
+            PrepareQuestionList();
+            currentItemIndex = 0;
+            LoadStage(0);
+        }
+        else
+        {
+            LoadStage(currentItemIndex);
+        }
+    }
+
+    // =========================================================================
+    // VICTORY SCORE CALCULATION ROLLUP
+    // =========================================================================
+    private void AnimateVictoryScoreRollup()
+    {
+        if (victoryScoreTMP == null) return;
+
+        int targetScore = currentScore;
+        if (targetScore <= 0)
+        {
+            victoryScoreTMP.text = "MISSION SCORE: 0 PTS";
+            return;
+        }
+
+        victoryScoreTMP.text = "MISSION SCORE: 0 PTS";
+        DOVirtual.Int(0, targetScore, 2.0f, val =>
+        {
+            victoryScoreTMP.text = $"MISSION SCORE: {val:N0} PTS";
+        }).SetEase(Ease.OutCubic).OnComplete(() =>
+        {
+            if (totalStreakBonusEarned > 0)
+            {
+                victoryScoreTMP.text = $"MISSION SCORE: {targetScore:N0} PTS\n<size=65%><color=#FFAA00> INCLUDES +{totalStreakBonusEarned:N0} STREAK BONUS PTS! (BEST: x{highestStreak})</color></size>";
+            }
+            else
+            {
+                victoryScoreTMP.text = $"MISSION SCORE: {targetScore:N0} PTS";
+            }
+            victoryScoreTMP.transform.DOKill();
+            victoryScoreTMP.transform.DOPunchScale(Vector3.one * 0.22f, 0.35f, 6, 1f);
+            if (AudioManager.instance != null) AudioManager.instance.PlayCorrect();
+        });
     }
 }
