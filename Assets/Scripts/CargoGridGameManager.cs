@@ -136,6 +136,8 @@ public class CargoGridGameManager : MonoBehaviour
     private int currentCorrectOptionIndex = 0;
 
     [Header("Activity Data")]
+    [Tooltip("If true, prioritizes the questions and options defined in the C# script code so any script edits immediately update in-game.")]
+    public bool loadQuestionsFromScript = true;
     public List<ActivityItem> activityItems = new List<ActivityItem>();
     private int currentItemIndex = 0;
     private bool isAnsweringLocked = false;
@@ -204,13 +206,13 @@ public class CargoGridGameManager : MonoBehaviour
         }
         instance = this;
         CacheActivityAuthoredScales();
-        EnsureActivityItems();
+        EnsureActivityItems(true);
         PrepareQuestionList();
     }
 
     private void Start()
     {
-        EnsureActivityItems();
+        EnsureActivityItems(true);
         PrepareQuestionList();
         AutoSetupHeartsUI();
         AutoSetupTryAgainUI();
@@ -219,9 +221,9 @@ public class CargoGridGameManager : MonoBehaviour
         ShowScreenInstructions();
     }
 
-    public void EnsureActivityItems()
+    public void EnsureActivityItems(bool forceReloadFromScript = false)
     {
-        if (activityItems != null && activityItems.Count > 0)
+        if (!forceReloadFromScript && !loadQuestionsFromScript && activityItems != null && activityItems.Count > 0)
         {
             if (originalActivityItems == null || originalActivityItems.Count == 0)
             {
@@ -230,11 +232,28 @@ public class CargoGridGameManager : MonoBehaviour
             return;
         }
 
+        // Cache any visual sprites that might already be assigned
+        Dictionary<int, Sprite> cachedSprites = new Dictionary<int, Sprite>();
+        if (activityItems != null)
+        {
+            for (int s = 0; s < activityItems.Count; s++)
+            {
+                if (activityItems[s] != null && activityItems[s].visualSprite != null)
+                    cachedSprites[s] = activityItems[s].visualSprite;
+            }
+        }
+
         Sprite crateSprite = Resources.Load<Sprite>("CargoGrid/Sprites/crate_item");
         Sprite conveyorTraySprite = Resources.Load<Sprite>("CargoGrid/Sprites/conveyor_tray_bg");
         Sprite generatorSprite = Resources.Load<Sprite>("CargoGrid/Sprites/generator_item");
         Sprite sensorSprite = Resources.Load<Sprite>("CargoGrid/Sprites/sensor_scanner");
         Sprite landingSprite = Resources.Load<Sprite>("CargoGrid/Sprites/landing_pads");
+
+        if (crateSprite == null && cachedSprites.ContainsKey(0)) crateSprite = cachedSprites[0];
+        if (conveyorTraySprite == null && cachedSprites.ContainsKey(1)) conveyorTraySprite = cachedSprites[1];
+        if (generatorSprite == null && cachedSprites.ContainsKey(2)) generatorSprite = cachedSprites[2];
+        if (sensorSprite == null && cachedSprites.ContainsKey(3)) sensorSprite = cachedSprites[3];
+        if (landingSprite == null && cachedSprites.ContainsKey(4)) landingSprite = cachedSprites[4];
 
         activityItems = new List<ActivityItem>
         {
@@ -261,7 +280,7 @@ public class CargoGridGameManager : MonoBehaviour
                 screenPrompt = "Line up the cargo sizes: 41, 18, 33, 50, 25\n<color=#2AFFA2>Ordered Track: 18 -> 25 -> [ 33 ] -> 41 -> 50</color>",
                 taskPrompt = ">>> TASK: Put weights in order from least to greatest and select the exact center.",
                 botCheerPrompt = "\"We lined them up from least to greatest! Pick the container right in the center!\"",
-                options = new string[] { "18", "25", "33 (Center)", "41", "50" },
+                options = new string[] { "18", "25", "33", "41", "50" },
                 optionSubtitles = new string[] { "Smallest", "2nd", "MEDIAN (Center)", "4th", "Largest" },
                 correctOptionIndex = 2,
                 voiceoverCorrect = "Perfect! 33 is the median because it is exactly in the middle.",
@@ -306,7 +325,7 @@ public class CargoGridGameManager : MonoBehaviour
                 screenPrompt = "Zone A winds: 15, 16, 15, 17, 15 (Narrow spread: 2 km/h)\n<color=#FFB800>Zone B winds: 5, 25, 12, 30, 8 (Wild spread: 25 km/h)</color>",
                 taskPrompt = ">>> TASK: Select the landing zone with the most steady weather pattern for takeoff.",
                 botCheerPrompt = "\"Look at the numbers! Zone A stays between 15-17. Zone B is all over the place!\"",
-                options = new string[] { "ZONE A (Steady)", "ZONE B (Turbulent)" },
+                options = new string[] { "ZONE A", "ZONE B" },
                 optionSubtitles = new string[] { "Safe & Predictable", "Wild Fluctuations" },
                 correctOptionIndex = 0,
                 voiceoverCorrect = "Smart choice! Zone A has very steady, predictable numbers. Clear for launch!",
@@ -315,15 +334,29 @@ public class CargoGridGameManager : MonoBehaviour
             }
         };
 
-        if (originalActivityItems == null || originalActivityItems.Count == 0)
+        // Extra safeguard: sanitize any legacy "(Steady)" or "(Turbulent)" strings if present
+        for (int k = 0; k < activityItems.Count; k++)
         {
-            originalActivityItems = new List<ActivityItem>(activityItems);
+            var act = activityItems[k];
+            if (act != null && act.options != null)
+            {
+                for (int o = 0; o < act.options.Length; o++)
+                {
+                    if (act.options[o] != null)
+                    {
+                        if (act.options[o].Contains("ZONE A (Steady)")) act.options[o] = "ZONE A";
+                        else if (act.options[o].Contains("ZONE B (Turbulent)")) act.options[o] = "ZONE B";
+                    }
+                }
+            }
         }
+
+        originalActivityItems = new List<ActivityItem>(activityItems);
     }
 
     public void PrepareQuestionList()
     {
-        EnsureActivityItems();
+        EnsureActivityItems(loadQuestionsFromScript);
 
         if (originalActivityItems != null && originalActivityItems.Count > 0)
         {
@@ -817,7 +850,12 @@ public class CargoGridGameManager : MonoBehaviour
                 // User manual sizes (sizeDelta and LayoutElement preferred/min width & height) are 100% preserved! Zero overrides!
 
                 if (optionTexts[i] != null && item.options != null && origIdx < item.options.Length)
-                    optionTexts[i].text = item.options[origIdx];
+                {
+                    string optStr = item.options[origIdx];
+                    if (optStr == "ZONE A (Steady)") optStr = "ZONE A";
+                    else if (optStr == "ZONE B (Turbulent)") optStr = "ZONE B";
+                    optionTexts[i].text = optStr;
+                }
 
                 if (optionSubtitles[i] != null)
                 {

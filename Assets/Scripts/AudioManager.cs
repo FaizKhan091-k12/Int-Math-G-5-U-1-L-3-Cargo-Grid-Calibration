@@ -4,7 +4,7 @@ using UnityEngine.UI;
 public class AudioManager : MonoBehaviour
 {
     public static AudioManager instance;
-
+ 
     [Header("Audio Sources")]
     [SerializeField] private AudioSource musicSource;
     [SerializeField] private AudioSource sfxSource;

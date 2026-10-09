@@ -8,7 +8,7 @@ using UnityEngine.UI;
 public class UIHoverClickEffect : MonoBehaviour,
     IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
 {
-    [Header("Hover Settings")]
+    [Header("Hover Settings")] 
     public float hoverScale = 1.08f;
     public float hoverDuration = 0.12f;
     public bool useUnscaledTime = true;
